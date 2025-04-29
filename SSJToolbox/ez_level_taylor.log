@@ -1,0 +1,150 @@
+Starting Dynare (version 6.3).
+Calling Dynare with arguments: none
+Starting preprocessing of the model file ... 
+Found 34 equation(s). 
+Evaluating expressions... 
+Computing static model derivatives (order 1). 
+Normalizing the static model... 
+Finding the optimal block decomposition of the static model... 
+23 block(s) found: 
+  21 recursive block(s) and 2 simultaneous block(s). 
+  the largest simultaneous block has 11 equation(s) 
+                                 and 11 feedback variable(s). 
+Computing dynamic model derivatives (order 2). 
+Normalizing the dynamic model... 
+Finding the optimal block decomposition of the dynamic model... 
+23 block(s) found: 
+  21 recursive block(s) and 2 simultaneous block(s). 
+  the largest simultaneous block has 11 equation(s) 
+                                 and 10 feedback variable(s). 
+Preprocessing completed. 
+Preprocessing time: 0h00m00s.
+
+STEADY-STATE RESULTS:
+
+u     		 3.58667e-06
+v     		 1
+ev    		 1
+m     		 0.990516
+y     		 1.22023
+c     		 0.901735
+l     		 0.50656
+k     		 9.39236
+i     		 0.318496
+r     		 0.0389753
+w     		 1.6862
+R1    		 1.01462
+R2    		 1.01462
+R3    		 1.01462
+R4    		 1.01462
+R5    		 1.01462
+R6    		 1.01462
+R7    		 1.01462
+R8    		 1.01462
+R9    		 1.01462
+R10   		 1.01462
+R11   		 1.01462
+R12   		 1.01462
+R13   		 1.01462
+R14   		 1.01462
+R15   		 1.01462
+R16   		 1.01462
+R17   		 1.01462
+R18   		 1.01462
+R19   		 1.01462
+R20   		 1.01462
+yield 		 0
+infl  		 0.005
+z     		 1.00451
+
+EIGENVALUES:
+         Modulus             Real        Imaginary
+       1.098e-17       -1.098e-17                0
+       9.111e-17        9.111e-17                0
+       9.911e-17        9.911e-17                0
+       3.705e-13        3.705e-13                0
+       1.881e-11        1.881e-11                0
+          0.9849           0.9849                0
+           1.005            1.005                0
+            1.02             1.02                0
+             1.1              1.1                0
+           4.315            4.315                0
+           4.326            4.049            1.523
+           4.326            4.049           -1.523
+           4.354            3.282            2.861
+           4.354            3.282           -2.861
+           4.391            2.106            3.854
+           4.391            2.106           -3.854
+            4.43           0.6627             4.38
+            4.43           0.6627            -4.38
+           4.464           -0.874            4.378
+           4.464           -0.874           -4.378
+           4.492            -2.32            3.846
+           4.492            -2.32           -3.846
+           4.516           -3.502            2.852
+           4.516           -3.502           -2.852
+           4.536           -4.275            1.516
+           4.536           -4.275           -1.516
+           4.544           -4.544                0
+       1.477e+22        1.477e+22                0
+       2.975e+24       -2.975e+24                0
+       3.743e+24        3.743e+24                0
+
+There are 24 eigenvalue(s) larger than 1 in modulus for 24 forward-looking variable(s)
+The rank condition is verified.
+
+
+MODEL SUMMARY
+
+  Number of variables:         34
+  Number of stochastic shocks: 2
+  Number of state variables:   6
+  Number of jumpers:           24
+  Number of static variables:  5
+
+
+MATRIX OF COVARIANCE OF EXOGENOUS SHOCKS
+Variables           e      pphi
+e            1.000000  0.000000
+pphi         0.000000  1.000000
+
+POLICY AND TRANSITION FUNCTIONS
+                                infl              R1              R4             R20           yield               k               m               y               c
+Constant                   -0.016532        1.007985        1.007575        1.005527       -0.002048        9.385670       10.406658        1.217434        0.905654
+(correction)               -0.021532       -0.006638       -0.007048       -0.009096       -0.002048       -0.006687        9.416143       -0.002798        0.003919
+u(-1)                       0.000001               0               0               0               0               0  -116624.444781               0               0
+ev(-1)                             0               0               0               0               0               0       -0.995855               0               0
+c(-1)                              0               0               0               0               0               0        1.098455               0               0
+k(-1)                      -0.058610       -0.015983       -0.015624       -0.013880        0.001744        0.984858       -0.249199        0.042528        0.023827
+z(-1)                              0               0               0               0               0               0       -0.769490               0               0
+R1(-1)                     -2.641375               0               0               0               0               0               0               0               0
+e                           0.003064        0.001201        0.001174        0.001043       -0.000131       -0.074001       -0.312065        0.006566        0.005424
+pphi                       -0.016750               0               0               0               0               0               0               0               0
+u(-1),u(-1)                -0.000008        0.000001       -0.000001               0               0       -0.000014    2.312377e+10        0.000001               0
+ev(-1),u(-1)                       0               0               0               0               0               0   117253.119980               0               0
+ev(-1),ev(-1)                      0               0               0               0               0               0        0.998539               0               0
+c(-1),u(-1)                        0               0               0               0               0               0  -129333.321409               0               0
+c(-1),ev(-1)                       0               0               0               0               0               0       -1.104376               0               0
+k(-1),u(-1)                        0               0               0               0               0               0    29340.927656               0               0
+k(-1),ev(-1)                       0               0               0               0               0               0        0.250542               0               0
+k(-1),c(-1)                        0               0               0               0               0               0       -0.276354               0               0
+k(-1),k(-1)                 0.004980        0.001023        0.001011        0.000939       -0.000071       -0.001396        0.048955       -0.001498       -0.001004
+z(-1),u(-1)                        0               0               0               0               0               0    90600.681929               0               0
+z(-1),ev(-1)                       0               0               0               0               0               0        0.773638               0               0
+z(-1),c(-1)                        0               0               0               0               0               0       -0.853344               0               0
+z(-1),k(-1)                        0               0               0               0               0               0        0.193592               0               0
+z(-1),z(-1)                        0               0               0               0               0               0        0.681910               0               0
+R1(-1),u(-1)               -0.000004               0               0               0               0               0       -0.000020               0               0
+R1(-1),k(-1)                0.154040               0               0               0               0               0               0               0               0
+R1(-1),R1(-1)               4.772728               0               0               0               0               0               0               0               0
+e,e                         0.000006               0        0.000001        0.000001               0        0.000288        0.049183        0.000018        0.000016
+pphi,e                     -0.000051               0               0               0               0               0               0               0               0
+pphi,pphi                   0.000140               0               0               0               0               0               0               0               0
+u(-1),e                            0               0               0               0               0               0    36742.914486               0               0
+ev(-1),e                           0               0               0               0               0               0        0.313747               0               0
+c(-1),e                            0               0               0               0               0               0       -0.346072               0               0
+k(-1),e                    -0.000201       -0.000026       -0.000027       -0.000030       -0.000003       -0.007669        0.077858        0.000225        0.000151
+k(-1),pphi                  0.000977               0               0               0               0               0               0               0               0
+z(-1),e                            0               0               0               0               0               0        0.242430               0               0
+R1(-1),e                   -0.008053               0               0               0               0               0               0               0               0
+R1(-1),pphi                 0.044023               0               0               0               0               0               0               0               0

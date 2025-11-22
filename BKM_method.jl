@@ -105,7 +105,7 @@ function SolveHHprobEGM(param, r, w, τl, τk, transfer)
         for j in 1:nS
             ap_new[:,j] = MyNumerical_method.linearGridIntp!(A_endo[:,j], gridA, gridA, ap_new[:,j])
         
-            for i in 1:nA, j in 1:nS 
+            for i in 1:nA
                 if ap_new[i,j]<gridA[1]
                     ap_new[i,j] = gridA[1]
                 else

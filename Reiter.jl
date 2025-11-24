@@ -5,10 +5,11 @@ using LinearInterpolations
 using Roots
 using Random
 using Distributions
+using Statistics
 include("Numerical_method.jl")
 #首先我们设定模型的参数
 function SettingPar_TransitionDynamics(;
-    nA = 300,
+    nA = 200,
     nS = 7,
     α = 0.33,
     β = 0.96,
@@ -871,23 +872,22 @@ function irf_aiy(result; T = 40)
     param = result.param
     K_ss  = result.K_ss
     Z_ss  = result.Z_ss
-
     @unpack nA, nS, α, δ, Lbar = param
     m  = nA * nS            # #assets × #idiosyncratic states
     idxK = 2*m + 1
     idxZ = 2*m + 2
 
     nx  = size(P, 1)
-    IRF = zeros(nx, T)
+    IRF = zeros(nx, T+1)
     IRF[:, 1] = Q[:, 1]     # ε_1 = 1, 之后为 0
 
-    for t in 2:T
+    for t in 2:T+1
         IRF[:, t] = P * IRF[:, t-1]
     end
 
     # ---- K, Z 的 IRF（百分比）----
-    dK = IRF[idxK, :]               # 水平偏差
-    dZ = IRF[idxZ, :]
+    dK = IRF[idxK, 1:end-1]               # 水平偏差
+    dZ = IRF[idxZ, 1:end-1]
 
     K_irf = dK ./ K_ss .* 100.0
     Z_irf = dZ ./ Z_ss .* 100.0
@@ -911,20 +911,150 @@ function irf_aiy(result; T = 40)
     dY = Y_K .* dK .+ Y_Z .* dZ
     dr = r_K .* dK .+ r_Z .* dZ
     dw = w_K .* dK .+ w_Z .* dZ
-
+    dK_lead = IRF[idxK, 2:T+1] # K_{t+1} - K_ss
     # 百分比 IRF（相对稳态）
     Y_irf = dY ./ Y_ss .* 100.0
-    r_irf = dr ./ r_ss .* 100.0
+    r_irf = dr 
     w_irf = dw ./ w_ss .* 100.0
+       I_ss  = δ * K_ss
+    dI    = dK_lead .- (1.0 - δ) .* dK       # 严格等式
+    I_irf = dI ./ I_ss .* 100.0
+    C_ss  = Y_ss - I_ss
+    dC    = dY .- dI
+    C_irf = dC ./ C_ss .* 100.0
 
+
+
+    # ==== 用 IRF 累加计算总量矩 ====
+    # 我们对“归一化变量”的IRF做累加:
+    #   z_hat = (Z - Z_ss)/Z_ss   ~ log Z
+    #   k_hat = (K - K_ss)/K_ss
+    #   y_hat = (Y - Y_ss)/Y_ss
+    #   c_hat = (C - C_ss)/C_ss
+    #   i_hat = (I - I_ss)/I_ss
+    #   r_hat = (r - r_ss)/r_ss
+    #   w_hat = (w - w_ss)/w_ss
+
+    Z_hat = dZ ./ Z_ss
+    K_hat = dK ./ K_ss
+    Y_hat = dY ./ Y_ss
+    C_hat = dC ./ C_ss
+    I_hat = dI ./ I_ss
+    r_hat = dr ./ r_ss
+    w_hat = dw ./ w_ss
+
+    # 组装成 nvar × T 的 IRF矩阵，每行一个变量，每列一个 horizon
+    IRF_sub = permutedims(hcat(Z_hat, K_hat, Y_hat, C_hat, I_hat, r_hat, w_hat))
+    # 现在 IRF_sub 的维度是 (7 × T)
+
+    # 冲击的标准差：如果你的结构冲击在模型里设定为 σ_z，
+    # 且这里的IRF对应的是“单位标准差冲击”，就用 σ_ε = σ_z；
+    # 如果IRF已经是1σ冲击的响应，就设为 1.0。
+    σ_ε = 1.0   # 或者 = param.σz 之类，根据你的设定改
+
+    nvar, Th = size(IRF_sub)
+    Σ = zeros(nvar, nvar)
+    for t in 1:Th
+        v = σ_ε .* IRF_sub[:, t]    # 当前期各变量的响应 g_j
+        Σ .+= v * v'                # 累加 g_j g_j'
+    end
+
+    # 标准差（=无条件波动率），相关系数矩阵
+    σ_vec = sqrt.(diag(Σ))
+    Corr  = zeros(nvar, nvar)
+    for i in 1:nvar, j in 1:nvar
+        Corr[i,j] = Σ[i,j] / (σ_vec[i] * σ_vec[j])
+    end
+
+    names = ["Z","K","Y","C","I","r","w"]
+
+    println("=== 无条件标准差（归一化变量） ===")
+    for i in 1:nvar
+        println("σ_", names[i], " = ", σ_vec[i])
+    end
+
+    println("\n=== 相对于产出的相对波动（σ_x / σ_Y） ===")
+    idxY = 3
+    for i in 1:nvar
+        println("σ_", names[i], "/σ_Y = ", σ_vec[i] / σ_vec[idxY])
+    end
+
+    println("\n=== 相关系数矩阵 Corr[x_i, x_j] ===")
+    println(names)
+    show(stdout, "text/plain", Corr)
+    println("\n")
     # ---- 画图 ----
-    tgrid = 1:T
-    p1 = plot(tgrid, Z_irf, lw=2, xlabel="t", ylabel="% dev from SS", label="Z")
-    p2 = plot(tgrid, K_irf, lw=2, xlabel="t", ylabel="% dev from SS", label="K")
-    p3 = plot(tgrid, Y_irf, lw=2, xlabel="t", ylabel="% dev from SS", label="Y")
-    p4 = plot(tgrid, r_irf, lw=2, xlabel="t", ylabel="% dev from SS", label="r")
-    p5 = plot(tgrid, w_irf, lw=2, xlabel="t", ylabel="% dev from SS", label="w")
-
+    tgrid = 1:40
+    p1 = plot(tgrid, Z_irf[tgrid], lw=2, xlabel="t", ylabel="% dev from SS", title="TFP shock",legend = false)
+    p2 = plot(tgrid, K_irf[tgrid], lw=2, xlabel="t", ylabel="% dev from SS", title="Capital",legend = false)
+    p3 = plot(tgrid, Y_irf[tgrid], lw=2, xlabel="t", ylabel="% dev from SS", title="Output",legend = false)
+    p4 = plot(tgrid, r_irf[tgrid], lw=2, xlabel="t", ylabel="level dev from SS", title="Interest Rate",legend = false)
+    p5 = plot(tgrid, w_irf[tgrid], lw=2, xlabel="t", ylabel="% dev from SS", title="Wage",legend = false)
+    p6 = plot(tgrid, I_irf[tgrid], lw=2, xlabel="t", ylabel="% dev from SS", title="Saving/Investment",legend = false)
+    p7 = plot(tgrid, C_irf[tgrid], lw=2, xlabel="t", ylabel="% dev from SS", title="Consumption",legend = false)
     # 自己选布局，我这里给一个 3×2 的例子
-    plot(p1, p2, p3, p4, p5, layout=(3,2), size=(900,700))
+    plot(p1, p2, p3, p4, p5,p6,p7, layout=(3,3), size=(900,700))
 end
+function lorenz_discrete(dist, values; doPlot=true)
+    # 确保是向量
+    dist = vec(dist)
+    values = vec(values)
+    
+    # 数据验证
+    @assert all(isfinite, values) && all(isfinite, dist) "NaN/Inf detected"
+    @assert all(dist .>= 0) "dist 必须非负"
+    
+    # 按收入/财富排序
+    sorted_indices = sortperm(values)
+    values_sorted = values[sorted_indices]
+    dist_sorted = dist[sorted_indices]
+    
+    # 计算总人口和总财富
+    total_pop = sum(dist_sorted)
+    total_wealth = sum(dist_sorted .* values_sorted)
+    
+    @assert total_pop > 0 && total_wealth >= 0 "权重或总财富异常"
+    
+    # 计算累计人口份额和累计财富份额
+    cum_pop_share = cumsum(dist_sorted) / total_pop      # 累计人口份额
+    cum_wealth_share = cumsum(dist_sorted .* values_sorted) / total_wealth  # 累计财富份额
+    
+    # 添加起点 (0,0)
+    p = [0; cum_pop_share]
+    L = [0; cum_wealth_share]
+    
+    # 计算基尼系数（使用离散公式）
+    gini = MyNumerical_method.calGini2(dist, values)
+    
+    if doPlot
+        # 绘制洛伦兹曲线
+        p1 = plot(p, L, linewidth=2, label="Lorenz Curve", color=:blue)
+        # 绘制平等线
+        plot!([0, 1], [0, 1], linestyle=:dash, color=:black, linewidth=1, label="Equality Line")
+        
+        xlabel!("Cumulative Population Share")
+        ylabel!("Cumulative Wealth Share")
+        title!("Lorenz Curve (Gini = $(round(gini, digits=3)))")
+        xlims!(0, 1)
+        ylims!(0, 1)
+        #grid!(true)
+        #legend()
+        plot(p1)
+    end
+    
+    #return (p, L, gini)
+    end
+
+
+
+    function simulate_x(P, Q; T = 50_000)
+        nx, nε = size(P,1), size(Q,2)
+        x = zeros(nx, T)
+        for t in 2:T
+            εt = randn(nε)
+            x[:,t] = P * x[:,t-1] + Q * εt
+        end
+        return x
+    end
+
+

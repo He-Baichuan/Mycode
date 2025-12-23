@@ -5,9 +5,11 @@ include("module FunctionApprox.jl")
 include("./Numerical_method.jl")
 include("Numerical Optim.jl")
 include("./aux/auxf.jl")
+include("./FixvMN1.jl")
 using .FunctionApprox
 using .MyNumerical_method
 using .Numerical_Optim
+using .FixvMN1
 =#
 
 function SettingPar(;
@@ -34,7 +36,10 @@ function SettingPar(;
                     income_max = 4.0,
                     income_min = 0.0)
 
-    vGridAsset = collect(range(a_min,a_max,nA))
+    #vGridAsset = collect(range(a_min,a_max,nA))
+    ubar = log(1+log(1+a_max-a_min));
+    u_grid = collect(range(0, ubar, nA));
+    vGridAsset = a_min .+ exp.(exp.(u_grid) .- 1) .- 1;
     vGrids_η = [0.727, 1.273]
     mTrans_η = [0.98 0.02; 0.02 0.98]
     vGrids_ϵ = [ϵ1 , ϵ2]
@@ -55,10 +60,10 @@ end
 # 设置参数
 param = SettingPar()
 
-data = XLSX.readdata("survival_probs_US.xlsx", "Data", "F22:AI37")
+data = XLSX.readdata("./optim_pension/survival_probs_US.xlsx", "Data", "F22:AI37")
 survivalprobs = reverse(Matrix{Float64}(data), dims=1)
 
-popgrowth=XLSX.readdata("survival_probs_US.xlsx",2,"F41:AI43")
+popgrowth=XLSX.readdata("./optim_pension/survival_probs_US.xlsx",2,"F41:AI43")
 popgrowth = Matrix{Float64}(popgrowth)
 timespan = collect(Int64, range(1950, 2095, 30))
 nrate = [timespan popgrowth']
@@ -99,7 +104,7 @@ title!("Annual survival probability")
 sp1 = sp1[1:nages]
 sp1_init = sp1
 g_n_init = popgrowth
-age_effciency = XLSX.readdata("efficiency_profile.xlsx",1,"A1:A45")
+age_effciency = XLSX.readdata("./optim_pension/efficiency_profile.xlsx",1,"A1:A45")
 age_effciency = age_effciency./mean(age_effciency)
 age2 = collect(range(20,64,45))
 p3 = plot(age2, age_effciency; label = false)
@@ -220,10 +225,10 @@ plot(p1, p2,p3,p4, p5, layout=(3,2), size = (1000,1200), linewidth = 1.5)
 #稳态计算的初始化
 @unpack  α, β, δ, G_Y, τ_w = param
 average_hours = 0.298
-Lbar = 0.27463
-kbar = 1.10991 
-#Lbar = average_hours * sum(mass_init[1:periods_working])
-#kbar = (α /(1/β -1+δ) )^(1/(1-α))*Lbar#使用最优增长模型的稳态作为初值
+#Lbar = 0.24863
+#kbar = 2.10991 
+Lbar = average_hours * sum(mass_init[1:periods_working])
+kbar = (α /(1/β -1+δ) )^(1/(1-α))*Lbar#使用最优增长模型的稳态作为初值
 ybar = kbar^α * Lbar^(1-α)
 Gbar = G_Y * ybar
 trbar = 0.02293
@@ -232,8 +237,99 @@ trbar = 0.02293
  #                   mass_init, g_n_init, age_effciency, param)
 #println(y)
 x_init = [kbar, Lbar, average_hours, trbar, τ_b, τ_w]
-sol = nlsolve(obj_getss,x_init)
+#sol = nlsolve(obj_getss, x_init)
+sol = fixvmn1(x_init, obj_getss)
+#ss1 = getssvalues(1.10991 , 0.24863, 0.298, 0.02293, 0.08532, τ_w, sp1_init,
+                    #mass_init, g_n_init, age_effciency, param)
 
+ss1 = getssvalues(sol[1][1] , sol[1][2], sol[1][3], sol[1][4], sol[1][5], sol[1][6], sp1_init,
+                    mass_init, g_n_init, age_effciency, param)
+#=                  
+K = sol[1][1]
+L = sol[1][2]
+average_hours = sol[1][3]
+trbar = sol[1][4]
+τ_b = sol[1][5]
+τ_w = sol[1][6]
+Y = K^α * L^(1-α)
+=#
+ga = ss1.ga
+V = ss1.V
+C_policy = ss1.C_policy
+A_policy = ss1.A_policy
+L_policy = ss1.L_policy
+gbar2015 = ss1.ga
+cgen = ss1.cgen
+lgen = ss1.lgen
+agen = ss1.agen
+lgeneps = ss1.lgeneps
+cgen1 = cgen[:,1]./ mass_init*2
+cgen2 = cgen[:,2]./ mass_init*2
+cgen0 = [cgen1 cgen2]
+lgen0=lgen./mass_init[1:45]
+agen01=agen[:,1]./mass_init*2
+agen02=agen[:,2]./mass_init*2
+agen0 = [agen01 agen02]
+lgeneps01=lgeneps[:,1]./mass_init[1:45]*2
+lgeneps02=lgeneps[:,2]./mass_init[1:45]*2
+lgeneps0 = [ lgeneps01, lgeneps02]
+periods = collect(range(20,64,45))
+p6 = plot(periods,lgeneps0)
+periods2=collect(range(20,20+nages-1,nages))
+p7 =plot(periods2,agen0)
+p8 = plot(periods2,cgen0)
 
+#=
+#sol = nlsolve(obj_getss, x_init; method = :newton,  linesearch = LineSearches.BackTracking())
+K = sol[1][1]
+L = sol[1][2]
+average_hours = sol[1][3]
+trbar = sol[1][4]
+τ_b = sol[1][5]
+τ_w = sol[1][6]
+Y = K^α * L^(1-α)
 
+fx = obj_getss(x_init)
+println("f(x_init) finite? ", all(isfinite, fx), "  ||f||∞=", maximum(abs.(fx)))
 
+# 测试中心差分用到的邻域点（用一个粗略 h）
+h = 1e-6
+for j in 1:length(x_init)
+    ej = zeros(length(x_init)); ej[j]=1.0
+    for sgn in (-1.0, +1.0)
+        x = x_init .+ sgn*h .* ej
+        try
+            f = obj_getss(x)
+            ok = all(isfinite, f)
+            println("j=$j sgn=$sgn ok=$ok  max|f|=", ok ? maximum(abs.(f)) : NaN)
+        catch err
+            println("j=$j sgn=$sgn THREW: ", err)
+        end
+    end
+end
+x0  = x_init
+f0  = obj_getss(x0)
+J0  = FixvMN1.cdjac(obj_getss, x0; fx0=f0)
+d   = -(J0 \ f0)
+
+println("||f0||∞ = ", maximum(abs.(f0)))
+println("min(x0) = ", minimum(x0))
+println("directional derivative dgdx? ",
+        dot(J0' * f0, d))  # = ∇Φ(x0)' d
+
+for s in (1.0, 0.75, 0.75^2, 0.75^3, 0.75^4, 0.75^5, 0.75^6, 0.75^7)
+    x = x0 .+ s .* d
+    try
+        fx = obj_getss(x)
+        ok = all(isfinite, fx)
+        phi = ok ? 0.5*dot(fx,fx) : Inf
+        println("s=", s,
+                "  ok=", ok,
+                "  min(x)=", minimum(x),
+                "  ||f||∞=", ok ? maximum(abs.(fx)) : NaN,
+                "  phi=", phi)
+    catch err
+        println("s=", s, "  THREW: ", err, "   min(x)=", minimum(x))
+    end
+end
+=#

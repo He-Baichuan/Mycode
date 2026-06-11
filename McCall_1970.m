@@ -1,9 +1,10 @@
 % 这是一个复现 McCall(1970) 的代码
 
+
 n = 50;
 alpha = 200;
 beta = 100;
-
+rng('default')
 % 1. 支持集 (0 到 n)
 k = 0:n;
 
@@ -49,6 +50,7 @@ v_iter(:,1) = zeros(n+1,1);
 coeff_matrix_accept = diag((1-beta)*ones(n+1,1));
 coeff_matrix_search = -beta*repmat(p',[n+1,1])+eye(n+1);
 tic
+%%% 基于Howard 政策迭代 %%%
 while iter<maxit && crit>tol
     %%% 政策评估 %%%
     index = (polcy_iter(:,iter-1)-1);
@@ -72,34 +74,37 @@ toc
 figure(3)
 plot(polcy_iter)
 % 参数
-beta = 0.99; c = 25; n = 50; tol = 1e-6; maxit = 500;
+% beta = 0.99; c = 25; n = 50; tol = 1e-6; maxit = 500;
 
 % Beta-Binomial 概率（需先计算，或用你已有的 p）
 % w = linspace(10, 60, n+1)';
 
-% 值迭代
-v = w / (1-beta);           % 初始值：全部接受
-error = inf; iter = 0;
-tic
-while error > tol && iter < maxit
-    % 贝尔曼算子 T(v)
-    accept_val = w / (1-beta);
-    reject_val = c + beta * dot(p, v);      % 标量
-    v_next = max(accept_val, reject_val);   % 逐点取max
-    
-    error = norm(v_next - v, inf);
-    v = v_next;
-    iter = iter + 1;
-end
-toc
-% 保留工资
-w_R = (1-beta) * (c + beta * dot(p, v))
-cdf = cumsum(p);
-H = 1 - interp1(w, cdf, w_R, 'spline');
-E_duration = (1/H)
+% % 值迭代
+% v = w / (1-beta);           % 初始值：全部接受
+% error = inf; iter = 0;
+% tic
+% while error > tol && iter < maxit
+%     % 贝尔曼算子 T(v)
+%     accept_val = w / (1-beta);
+%     reject_val = c + beta * dot(p, v);      % 标量
+%     v_next = max(accept_val, reject_val);   % 逐点取max
+% 
+%     error = norm(v_next - v, inf);
+%     v = v_next;
+%     iter = iter + 1;
+% end
+% toc
+% % 保留工资
+% w_R = (1-beta) * (c + beta * dot(p, v))
+% cdf = cumsum(p);
+% H = 1 - interp1(w, cdf, w_R, 'spline');
+% E_duration = (1/H)
 dd = compute_mean_stopping_time(w_R, w, n, alpha, 100, 10000)
 
+
+
 辅助函数
+
 function [v_new] = TV(v_old,w,p)
 beta = 0.99;
 c = 25;

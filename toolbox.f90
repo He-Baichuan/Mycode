@@ -86,6 +86,7 @@ public :: fzero
 public :: settol_min
 public :: setiter_min
 public :: fminsearch
+public :: fminucon
 public :: goldenx
 
 ! linear programming with constraints
@@ -176,6 +177,20 @@ interface assert_eq
 
     module procedure assert_eq2, assert_eq3, assert_eq4, assert_eq5, &
         assert_eqn
+
+end interface
+
+
+!##############################################################################
+! INTERFACE sp_matmul
+!
+! Generic sparse multiplication:
+!   sp_matmul(A, x)  -> dense vector y = A*x
+!   sp_matmul(A, B)  -> sparse matrix C = A*B
+!##############################################################################
+interface sp_matmul
+
+    module procedure sp_matvec, sp_spmatmul
 
 end interface
 
@@ -6344,6 +6359,308 @@ contains
         end subroutine shft
     
     end subroutine powell
+
+
+    !##############################################################################
+    ! SUBROUTINE fminucon
+    !
+    ! Minimizes an unconstrained multidimensional function by the Nelder-Mead
+    ! simplex algorithm.
+    !##############################################################################
+    subroutine fminucon(p, fret, func, step)
+
+        implicit none
+
+
+        !##### INPUT/OUTPUT VARIABLES #############################################
+
+        ! starting point on entry, minimizer on return
+        real*8, intent(inout) :: p(:)
+
+        ! function value at minimum
+        real*8, intent(out) :: fret
+
+        ! optional initial simplex step sizes
+        real*8, intent(in), optional :: step(:)
+
+
+        !##### OTHER VARIABLES ####################################################
+
+        integer :: n, kcount, konvge, icount, numres, ifault
+        real*8 :: reqmin
+        real*8 :: start(size(p, 1)), xmin(size(p, 1)), step_h(size(p, 1))
+
+
+        !##### INTERFACES #########################################################
+
+        ! interface for the function
+        interface
+            function func(p)
+                implicit none
+                real*8, intent(in) :: p(:)
+                real*8 :: func
+            end function func
+        end interface
+
+
+        !##### ROUTINE CODE #######################################################
+
+        n = size(p, 1)
+        if(n < 1)call error('fminucon', 'dimension must be positive')
+
+        start = p
+        if(present(step))then
+            if(size(step, 1) /= n) &
+                call error('fminucon', 'step must have same length as p')
+            if(any(step <= 0d0)) &
+                call error('fminucon', 'step values must be positive')
+            step_h = step
+        else
+            step_h = max(0.05d0*abs(p), 2.5d-4)
+        endif
+
+        reqmin = tbox_gftol
+        konvge = 10
+        kcount = max(tbox_itermax_min, tbox_itermax_min*(n+1))
+
+        call nelder_mead(func, n, start, xmin, fret, reqmin, step_h, &
+            konvge, kcount, icount, numres, ifault)
+
+        p = xmin
+
+        if(ifault == 1)then
+            call error('fminucon', 'invalid Nelder-Mead control parameter')
+        elseif(ifault == 2)then
+            call warning('fminucon', 'maximum iterations exceeded')
+        endif
+
+
+    contains
+
+
+        !##########################################################################
+        ! SUBROUTINE nelder_mead
+        !
+        ! Nelder-Mead simplex minimization, adapted for module procedure functions.
+        !##########################################################################
+        subroutine nelder_mead(fn, n, start, xmin, ynewlo, reqmin, step, &
+            konvge, kcount, icount, numres, ifault)
+
+            implicit none
+
+
+            !##### INPUT/OUTPUT VARIABLES #########################################
+
+            integer, intent(in) :: n
+            real*8, intent(inout) :: start(n)
+            real*8, intent(out) :: xmin(n)
+            real*8, intent(out) :: ynewlo
+            real*8, intent(in) :: reqmin
+            real*8, intent(in) :: step(n)
+            integer, intent(in) :: konvge, kcount
+            integer, intent(out) :: icount, numres, ifault
+
+
+            !##### OTHER VARIABLES ################################################
+
+            real*8, parameter :: ccoeff = 0.5d0
+            real*8, parameter :: ecoeff = 2.0d0
+            real*8, parameter :: eps = 0.001d0
+            real*8, parameter :: rcoeff = 1.0d0
+            integer :: i, ihi, ilo, j, jcount, l
+            real*8 :: del, rq, x, ylo, y2star, ystar, z
+            real*8 :: simplex(n, n+1), p2star(n), pbar(n), pstar(n)
+            real*8 :: y(n+1)
+
+
+            !##### INTERFACES #####################################################
+
+            interface
+                function fn(p)
+                    implicit none
+                    real*8, intent(in) :: p(:)
+                    real*8 :: fn
+                end function fn
+            end interface
+
+
+            !##### ROUTINE CODE ###################################################
+
+            if(reqmin <= 0d0 .or. n < 1 .or. konvge < 1)then
+                ifault = 1
+                return
+            endif
+
+            icount = 0
+            numres = 0
+            jcount = konvge
+            del = 1d0
+            rq = reqmin*dble(n)
+
+            do
+
+                simplex(1:n, n+1) = start(1:n)
+                y(n+1) = fn(start)
+                icount = icount + 1
+
+                do j = 1, n
+                    x = start(j)
+                    start(j) = start(j) + step(j)*del
+                    simplex(1:n, j) = start(1:n)
+                    y(j) = fn(start)
+                    icount = icount + 1
+                    start(j) = x
+                enddo
+
+                ilo = minloc(y(1:n+1), 1)
+                ylo = y(ilo)
+
+                do while(icount < kcount)
+
+                    ihi = maxloc(y(1:n+1), 1)
+                    ynewlo = y(ihi)
+
+                    do i = 1, n
+                        pbar(i) = (sum(simplex(i, 1:n+1)) - &
+                            simplex(i, ihi))/dble(n)
+                    enddo
+
+                    pstar(1:n) = pbar(1:n) + rcoeff* &
+                        (pbar(1:n) - simplex(1:n, ihi))
+                    ystar = fn(pstar)
+                    icount = icount + 1
+
+                    if(ystar < ylo)then
+
+                        p2star(1:n) = pbar(1:n) + ecoeff* &
+                            (pstar(1:n) - pbar(1:n))
+                        y2star = fn(p2star)
+                        icount = icount + 1
+
+                        if(ystar < y2star)then
+                            simplex(1:n, ihi) = pstar(1:n)
+                            y(ihi) = ystar
+                        else
+                            simplex(1:n, ihi) = p2star(1:n)
+                            y(ihi) = y2star
+                        endif
+
+                    else
+
+                        l = 0
+                        do i = 1, n + 1
+                            if(ystar < y(i)) l = l + 1
+                        enddo
+
+                        if(1 < l)then
+
+                            simplex(1:n, ihi) = pstar(1:n)
+                            y(ihi) = ystar
+
+                        elseif(l == 0)then
+
+                            p2star(1:n) = pbar(1:n) + ccoeff* &
+                                (simplex(1:n, ihi) - pbar(1:n))
+                            y2star = fn(p2star)
+                            icount = icount + 1
+
+                            if(y(ihi) < y2star)then
+
+                                do j = 1, n + 1
+                                    simplex(1:n, j) = &
+                                        (simplex(1:n, j) + &
+                                        simplex(1:n, ilo))*0.5d0
+                                    xmin(1:n) = simplex(1:n, j)
+                                    y(j) = fn(xmin)
+                                    icount = icount + 1
+                                enddo
+
+                                ilo = minloc(y(1:n+1), 1)
+                                ylo = y(ilo)
+                                cycle
+
+                            else
+                                simplex(1:n, ihi) = p2star(1:n)
+                                y(ihi) = y2star
+                            endif
+
+                        elseif(l == 1)then
+
+                            p2star(1:n) = pbar(1:n) + ccoeff* &
+                                (pstar(1:n) - pbar(1:n))
+                            y2star = fn(p2star)
+                            icount = icount + 1
+
+                            if(y2star <= ystar)then
+                                simplex(1:n, ihi) = p2star(1:n)
+                                y(ihi) = y2star
+                            else
+                                simplex(1:n, ihi) = pstar(1:n)
+                                y(ihi) = ystar
+                            endif
+
+                        endif
+
+                    endif
+
+                    if(y(ihi) < ylo)then
+                        ylo = y(ihi)
+                        ilo = ihi
+                    endif
+
+                    jcount = jcount - 1
+                    if(0 < jcount) cycle
+
+                    if(icount <= kcount)then
+                        jcount = konvge
+                        x = sum(y(1:n+1))/dble(n+1)
+                        z = sum((y(1:n+1) - x)**2)
+                        if(z <= rq) exit
+                    endif
+
+                enddo
+
+                xmin(1:n) = simplex(1:n, ilo)
+                ynewlo = y(ilo)
+
+                if(kcount < icount)then
+                    ifault = 2
+                    exit
+                endif
+
+                ifault = 0
+
+                do i = 1, n
+                    del = step(i)*eps
+                    xmin(i) = xmin(i) + del
+                    z = fn(xmin)
+                    icount = icount + 1
+                    if(z < ynewlo)then
+                        ifault = 2
+                        exit
+                    endif
+
+                    xmin(i) = xmin(i) - del - del
+                    z = fn(xmin)
+                    icount = icount + 1
+                    if(z < ynewlo)then
+                        ifault = 2
+                        exit
+                    endif
+                    xmin(i) = xmin(i) + del
+                enddo
+
+                if(ifault == 0) exit
+
+                start(1:n) = xmin(1:n)
+                del = eps
+                numres = numres + 1
+
+            enddo
+
+        end subroutine nelder_mead
+
+    end subroutine fminucon
 
 
 
@@ -13483,11 +13800,12 @@ contains
 
 
     !##############################################################################
-    ! FUNCTION sp_matmul
+    ! FUNCTION sp_matvec
     !
     ! Sparse matrix-vector multiplication  y = A * x.
+    ! Publicly available through the generic interface sp_matmul.
     !##############################################################################
-    function sp_matmul(A, x) result(y)
+    function sp_matvec(A, x) result(y)
 
         implicit none
 
@@ -13512,7 +13830,7 @@ contains
         !##### ROUTINE CODE #######################################################
 
         if(size(x, 1) /= A%n) &
-            call error('sp_matmul', 'matrix and vector dimensions do not match')
+            call error('sp_matmul', 'matrix dimensions do not match')
 
         y = 0d0
         do i = 1, A%m
@@ -13521,7 +13839,106 @@ contains
             enddo
         enddo
 
-    end function sp_matmul
+    end function sp_matvec
+
+
+    !##############################################################################
+    ! FUNCTION sp_spmatmul
+    !
+    ! Sparse matrix-matrix multiplication  C = A * B  in CSR format.
+    ! Publicly available through the generic interface sp_matmul.
+    !
+    ! The algorithm uses one dense accumulator per row, like SPARSEKIT's amub:
+    ! first pass counts the structural nonzeros, second pass fills values.
+    !##############################################################################
+    function sp_spmatmul(A, B) result(C)
+
+        implicit none
+
+
+        !##### INPUT/OUTPUT VARIABLES #############################################
+
+        ! left sparse matrix
+        type(spmat), intent(in) :: A
+
+        ! right sparse matrix
+        type(spmat), intent(in) :: B
+
+        ! sparse product matrix
+        type(spmat) :: C
+
+
+        !##### OTHER VARIABLES ####################################################
+
+        integer :: i, ka, kb, col, p, nnz_count
+        integer, allocatable :: marker(:)
+        real*8, allocatable :: acc(:)
+        real*8 :: aval
+
+
+        !##### ROUTINE CODE #######################################################
+
+        if(A%n /= B%m) &
+            call error('sp_matmul', 'matrix dimensions do not match')
+
+        C%m = A%m
+        C%n = B%n
+
+        allocate(marker(B%n))
+        marker = 0
+
+        ! ---- first pass: count nonzeros row by row ----
+        nnz_count = 0
+        do i = 1, A%m
+            do ka = A%rowptr(i), A%rowptr(i+1)-1
+                do kb = B%rowptr(A%colind(ka)), B%rowptr(A%colind(ka)+1)-1
+                    col = B%colind(kb)
+                    if(marker(col) /= i)then
+                        marker(col) = i
+                        nnz_count = nnz_count + 1
+                    endif
+                enddo
+            enddo
+        enddo
+
+        C%nnz = nnz_count
+        allocate(C%rowptr(C%m+1), C%colind(C%nnz), C%values(C%nnz))
+
+        allocate(acc(B%n))
+        marker = 0
+        acc = 0d0
+        p = 0
+        C%rowptr(1) = 1
+
+        ! ---- second pass: accumulate values and write sorted columns ----
+        do i = 1, A%m
+            do ka = A%rowptr(i), A%rowptr(i+1)-1
+                aval = A%values(ka)
+                do kb = B%rowptr(A%colind(ka)), B%rowptr(A%colind(ka)+1)-1
+                    col = B%colind(kb)
+                    if(marker(col) /= i)then
+                        marker(col) = i
+                        acc(col) = aval*B%values(kb)
+                    else
+                        acc(col) = acc(col) + aval*B%values(kb)
+                    endif
+                enddo
+            enddo
+
+            do col = 1, B%n
+                if(marker(col) == i)then
+                    p = p + 1
+                    C%colind(p) = col
+                    C%values(p) = acc(col)
+                    acc(col) = 0d0
+                endif
+            enddo
+            C%rowptr(i+1) = p + 1
+        enddo
+
+        deallocate(marker, acc)
+
+    end function sp_spmatmul
 
 
     !##############################################################################
@@ -13995,7 +14412,8 @@ contains
 
         !##### OTHER VARIABLES ####################################################
 
-        real*8, allocatable :: Phi(:, :)
+        integer :: i, k, n
+        real*8 :: h, phi_left, phi_right
 
 
         !##### ROUTINE CODE #######################################################
@@ -14003,10 +14421,36 @@ contains
         if(size(coef, 1) /= size(xi, 1)) &
             call error('lineval_Gen', 'coef and xi must have the same length')
 
-        allocate(Phi(size(x, 1), size(xi, 1)))
-        call linbas_Gen(x, xi, Phi)
-        y = matmul(Phi, coef)
-        deallocate(Phi)
+        n = size(xi, 1) - 1
+        if(n < 1) call error('lineval_Gen', &
+            'xi must contain at least two grid points')
+
+        do k = 0, n-1
+            if(xi(k+1) <= xi(k)) call error('lineval_Gen', &
+                'xi must be strictly increasing')
+        enddo
+
+        k = 0
+        do i = 1, size(x, 1)
+
+            if(x(i) <= xi(0))then
+                y(i) = coef(0)
+                cycle
+            elseif(x(i) >= xi(n))then
+                y(i) = coef(n)
+                cycle
+            endif
+
+            if(x(i) < xi(k)) k = 0
+            do while(k < n-1 .and. x(i) > xi(k+1))
+                k = k + 1
+            enddo
+
+            h = xi(k+1) - xi(k)
+            phi_left  = (xi(k+1) - x(i))/h
+            phi_right = 1d0 - phi_left
+            y(i) = phi_left*coef(k) + phi_right*coef(k+1)
+        enddo
 
     end function lineval_Gen
 
@@ -14014,16 +14458,13 @@ contains
     !##############################################################################
     ! SUBROUTINE goldenx
     !
-    ! Vectorised golden-section search for MAXIMISATION of a scalar function.
-    !
-    ! For each element  j  the routine maximises  f(x, j)  over the interval
-    ! [low(j), high(j)] independently.  The element index j is passed to f so
-    ! that the caller can use precomputed arrays indexed by j (analoguous to
-    ! a closure capturing the loop index).
+    ! Vectorised golden-section search for MAXIMISATION, in the style of
+    ! CompEcon's goldenx.  The objective receives all current candidate points
+    ! at once and returns the corresponding vector of function values.
     !
     ! Optional arguments:
-    !   itmax — maximum iterations per element (default 100)
-    !   tol   — convergence tolerance on |b-a| (default 1d-8)
+    !   itmax — maximum iterations (default 100)
+    !   tol   — convergence tolerance on the bracket width (default 1d-8)
     !##############################################################################
     subroutine goldenx(f, low, high, xopt, fopt, itmax, tol)
 
@@ -14032,13 +14473,12 @@ contains
 
         !##### INPUT/OUTPUT VARIABLES #############################################
 
-        ! objective function f(x, ielem) — scalar, maximised
+        ! objective function val(:) = f(x(:)) — vector, maximised elementwise
         interface
-            function f(x, ielem) result(val)
-                real*8, intent(in)  :: x
-                integer, intent(in) :: ielem
-                real*8 :: val
-            end function
+            subroutine f(x, val)
+                real*8, intent(in)  :: x(:)
+                real*8, intent(out) :: val(:)
+            end subroutine
         end interface
 
         ! lower bounds (per element)
@@ -14062,9 +14502,11 @@ contains
 
         !##### OTHER VARIABLES ####################################################
 
-        integer  :: nelem, i, iter, maxit
-        real*8   :: phi, a, b, x1, x2, f1, f2, tconv
-        logical  :: converged
+        integer  :: nelem, iter, maxit
+        real*8   :: alpha1, alpha2, tconv
+        real*8, allocatable :: a(:), b(:), x1(:), x2(:), f1(:), f2(:)
+        real*8, allocatable :: xnew(:), fnew(:)
+        logical, allocatable :: use_right(:), active(:)
 
 
         !##### ROUTINE CODE #######################################################
@@ -14080,53 +14522,70 @@ contains
         if(present(itmax)) maxit = itmax
         if(present(tol))   tconv  = tol
 
-        phi = (sqrt(5d0) - 1d0)/2d0
+        alpha1 = (3d0 - sqrt(5d0))/2d0
+        alpha2 = 1d0 - alpha1
 
-        do i = 1, nelem
+        allocate(a(nelem), b(nelem), x1(nelem), x2(nelem), f1(nelem), f2(nelem))
+        allocate(xnew(nelem), fnew(nelem))
+        allocate(use_right(nelem), active(nelem))
 
-            a = low(i)
-            b = high(i)
+        a = low
+        b = high
+        active = (b - a) > 1d-16
 
-            ! degenerate interval
-            if(b <= a + 1d-16)then
-                xopt(i) = a
-                fopt(i) = f(a, i)
-                cycle
-            endif
+        x1 = a
+        x2 = a
+        where(active)
+            x1 = a + alpha1*(b-a)
+            x2 = a + alpha2*(b-a)
+        end where
 
-            ! ---- initial bracket ----
-            x1 = b - phi*(b - a)
-            x2 = a + phi*(b - a)
-            f1 = f(x1, i)
-            f2 = f(x2, i)
+        call f(x1, f1)
+        call f(x2, f2)
 
-            ! ---- golden-section loop ----
-            converged = .false.
-            do iter = 1, maxit
-                if(abs(b - a) < tconv)then
-                    converged = .true.
-                    exit
-                endif
+        do iter = 1, maxit
+            active = (b - a) > tconv
+            if(.not. any(active)) exit
 
-                if(f1 < f2)then          ! f2 is better → discard left
-                    a  = x1
-                    x1 = x2
-                    f1 = f2
-                    x2 = a + phi*(b - a)
-                    f2 = f(x2, i)
-                else                       ! f1 is better → discard right
-                    b  = x2
-                    x2 = x1
-                    f2 = f1
-                    x1 = b - phi*(b - a)
-                    f1 = f(x1, i)
-                endif
-            enddo
+            use_right = active .and. (f2 > f1)
 
-            xopt(i) = (a + b)/2d0
-            fopt(i) = f(xopt(i), i)
+            where(use_right)
+                a = x1
+                x1 = x2
+                f1 = f2
+                xnew = a + alpha2*(b-a)
+            elsewhere(active)
+                b = x2
+                x2 = x1
+                f2 = f1
+                xnew = a + alpha1*(b-a)
+            elsewhere
+                xnew = x1
+            end where
 
+            call f(xnew, fnew)
+
+            where(use_right)
+                x2 = xnew
+                f2 = fnew
+            elsewhere(active)
+                x1 = xnew
+                f1 = fnew
+            end where
         enddo
+
+        xopt = x1
+        fopt = f1
+        where(f2 > f1)
+            xopt = x2
+            fopt = f2
+        end where
+
+        where(high <= low + 1d-16)
+            xopt = low
+        end where
+
+        deallocate(a, b, x1, x2, f1, f2, xnew, fnew, use_right, active)
 
     end subroutine goldenx
 

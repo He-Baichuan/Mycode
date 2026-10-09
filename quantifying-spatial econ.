@@ -1,0 +1,60 @@
+# 假定全局已定义: N, σ, A, L, τ
+# 建议把它们打包成一个 struct 作为参数传入，这里为贴合你的写法先沿用全局。
+N = 3
+σ = 4
+A = [2.0;1.0;1.0]
+L = [1.0;2.0;4.0]
+τ = 2.0*(1.0 .-Matrix{Float64}(I, N, N)).+Matrix{Float64}(I, N, N)
+t = zeros(N,N)
+function fun_eqm_iter(t; weight=0.2, tol=1e-6, maxit=500)
+    # 初值
+    w = fill(1.0/N, N)
+    X = copy(w)
+
+    crit = 1
+    iter = 1
+
+    P = similar(w)                # 占位
+    λ_mat = zeros(N, N)           # 占位
+
+    while crit > tol && iter < maxit
+        κ = τ .* (1 .+ t)   # NxN
+
+        # k_mat[i,n] = ((w[i]/A[i]) * κ[i,n])^(1-σ)
+        k_mat = (κ .* (w ./ A)) .^ (1 .- σ)              # NxN
+
+        # 价格指数：返回 N 维向量
+        P = (vec(sum(k_mat, dims=1))) .^ (1/(1 - σ))     # N
+
+        # 列归一的份额 λ
+        λ_mat = k_mat ./ sum(k_mat, dims=1)              # NxN (自动广播，列和=1)
+
+        # 中间量：各地 n 的支出 X_n 在 i 的份额
+        Xin_mat = λ_mat .* (X')                          # NxN
+
+        # 更新 w 与 X
+        w_new = vec(sum(Xin_mat ./ (1 .+ t), dims=2)) ./ L                     # N
+        X_new = w .* L .+ vec(sum((t ./ (1 .+ t)) .* Xin_mat, dims=1))         # N
+
+        # 统一归一（numeraire）
+        wn = sum(w_new)
+        w_new ./= wn
+        X_new ./= wn
+        P     ./= wn
+
+        # 收敛准则（拼成一个 2N 向量）
+        r     = vcat(w, X)
+        r_new = vcat(w_new, X_new)
+        crit  = maximum(abs.(r_new .- r))
+
+        # 松弛
+        w = weight .* w_new .+ (1 - weight) .* w
+        X = weight .* X_new .+ (1 - weight) .* X
+
+        iter += 1
+    end
+
+    welfare = (X ./ L) ./ P    # N 维向量
+    return w, X, P, welfare, λ_mat
+end
+w, X, P, welfare, λ_mat = fun_eqm_iter(t)
